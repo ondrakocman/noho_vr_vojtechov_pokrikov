@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOHO – Vizualizace větrného parku</title>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* ── Landing overlay ── */
+    #landing {
+      position: fixed; inset: 0; z-index: 9999;
+      background: #efeae2;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      transition: opacity .5s;
+    }
+    #landing.hidden { opacity: 0; pointer-events: none; }
+
+    #landing .logo { width: min(60vw, 420px); margin-bottom: 48px; }
+
+    #enter-vr-btn {
+      padding: 18px 52px;
+      font-size: 1.25rem; font-weight: 700;
+      color: #fff; border: none; border-radius: 60px;
+      background: linear-gradient(135deg, #249e6b, #cedc00);
+      cursor: pointer;
+      box-shadow: 0 6px 24px rgba(36,158,107,.35);
+      transition: transform .15s, box-shadow .15s;
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    #enter-vr-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 32px rgba(36,158,107,.45);
+    }
+
+    /* ── Loading indicator ── */
+    #loading-overlay {
+      position: fixed; inset: 0; z-index: 9998;
+      background: rgba(0,0,0,.85);
+      display: none; align-items: center; justify-content: center;
+      color: #fff; font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 1.4rem;
+    }
+    #loading-overlay.visible { display: flex; }
+    .spinner {
+      width: 48px; height: 48px; border: 4px solid rgba(255,255,255,.2);
+      border-top-color: #cedc00; border-radius: 50%;
+      animation: spin .8s linear infinite; margin-right: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* hide default A-Frame UI */
+    .a-enter-vr { display: none !important; }
+  </style>
+</head>
+<body>
+
+<!-- ── Landing Page ── -->
+<div id="landing">
+  <img class="logo" src="assets/noho-logo.svg" alt="NOHO logo">
+  <button id="enter-vr-btn">Vstoupit do VR</button>
+  <p style="margin-top:24px;color:#666;font-family:'Segoe UI',sans-serif;font-size:.9rem;">
+    Nasaďte Meta Quest 3 a klikněte na tlačítko
+  </p>
+</div>
+
+<!-- ── Loading overlay ── -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <span>Načítání…</span>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     A-Frame Scene
+     ══════════════════════════════════════════════ -->
+<a-scene
+  vr-mode-ui="enabled: false"
+  renderer="colorManagement: true; sortObjects: true"
+  loading-screen="enabled: false"
+  webxr="requiredFeatures: local-floor"
+>
+  <!-- Assets – loaded on demand via JS -->
+  <a-assets timeout="60000">
+    <img id="sky-vojtechov"          src="assets/static_vojtechov.jpg"          crossorigin="anonymous">
+    <img id="sky-vojtechov-pokrikov" src="assets/static_vojtechov_pokrikov.jpg" crossorigin="anonymous">
+    <video id="vid-vojtechov"        src="assets/video_vojtechov.mp4"           crossorigin="anonymous"
+           playsinline loop preload="none"></video>
+  </a-assets>
+
+  <!-- Sky sphere – starts hidden -->
+  <a-sky id="sky" src="#sky-vojtechov" rotation="0 0 0" visible="false"></a-sky>
+
+  <!-- Camera rig -->
+  <a-entity id="camera-rig" position="0 1.6 0">
+    <a-camera id="cam" look-controls="pointerLockEnabled:false" wasd-controls="enabled:false">
+      <!-- Gaze cursor for panel interaction -->
+      <a-entity cursor="fuse:true;fuseTimeout:1200"
+                raycaster="objects:.btn"
+                position="0 0 -1"
+                geometry="primitive:ring;radiusInner:0.008;radiusOuter:0.012"
+                material="color:#cedc00;shader:flat"
+                animation__fuse="property:scale;startEvents:fusing;from:1 1 1;to:0.3 0.3 0.3;dur:1200"
+                animation__reset="property:scale;startEvents:mouseleave;to:1 1 1;dur:300">
+      </a-entity>
+    </a-camera>
+  </a-entity>
+
+  <!-- ── VR Control Panel ── -->
+  <a-entity id="vr-panel" visible="false" position="0 0.35 -0.75" rotation="-45 0 0">
+    <!-- Panel background -->
+    <a-rounded id="panel-bg" width="0.72" height="0.52" radius="0.03"
+               color="#1a1a2e" opacity="0.88"
+               position="0 0 -0.001">
+    </a-rounded>
+
+    <!-- Title -->
+    <a-text value="Větrný park" color="#cedc00"
+            align="center" width="1.2"
+            position="0 0.19 0" font="roboto"></a-text>
+
+    <!-- Variant button -->
+    <a-entity id="btn-variant" class="btn"
+              geometry="primitive:plane;width:0.58;height:0.1"
+              material="color:#249e6b;shader:flat"
+              position="0 0.06 0.001"
+              event-set__mouseenter="material.color:#2fc07e"
+              event-set__mouseleave="material.color:#249e6b">
+      <a-text id="btn-variant-text" value="▸ Vojtěchov"
+              color="#fff" align="center" width="1.4"
+              position="0 0 0.001" font="roboto"></a-text>
+    </a-entity>
+
+    <!-- Animated mode button -->
+    <a-entity id="btn-animate" class="btn"
+              geometry="primitive:plane;width:0.58;height:0.1"
+              material="color:#249e6b;shader:flat"
+              position="0 -0.08 0.001"
+              event-set__mouseenter="material.color:#2fc07e"
+              event-set__mouseleave="material.color:#249e6b">
+      <a-text id="btn-animate-text" value="Animace: Vypnuto"
+              color="#fff" align="center" width="1.4"
+              position="0 0 0.001" font="roboto"></a-text>
+    </a-entity>
+
+    <!-- Hide panel button -->
+    <a-entity id="btn-hide" class="btn"
+              geometry="primitive:plane;width:0.58;height:0.08"
+              material="color:#444;shader:flat"
+              position="0 -0.21 0.001"
+              event-set__mouseenter="material.color:#666"
+              event-set__mouseleave="material.color:#444">
+      <a-text value="Skrýt panel (podívejte se dolů)"
+              color="#aaa" align="center" width="1.6"
+              position="0 0 0.001" font="roboto"></a-text>
+    </a-entity>
+  </a-entity>
+
+  <!-- Gaze-down detector: invisible plane below user to re-show panel -->
+  <a-entity id="gaze-trigger" class="btn"
+            geometry="primitive:plane;width:3;height:3"
+            material="color:#000;opacity:0;transparent:true;shader:flat"
+            position="0 -0.8 -1.5" rotation="-70 0 0"
+            visible="true">
+  </a-entity>
+
+</a-scene>
+
+<!-- ══════════════════════════════════════════════
+     A-Frame component: rounded plane
+     ══════════════════════════════════════════════ -->
+<script>
+AFRAME.registerPrimitive('a-rounded', {
+  defaultComponents: {
+    geometry: {primitive:'plane', width:1, height:1},
+    material: {color:'#333', opacity:0.9, transparent:true, shader:'flat', side:'double'}
+  },
+  mappings: {
+    width:   'geometry.width',
+    height:  'geometry.height',
+    color:   'material.color',
+    opacity: 'material.opacity'
+  }
+});
+</script>
+
+<!-- ══════════════════════════════════════════════
+     App Logic
+     ══════════════════════════════════════════════ -->
+<script>
+(function () {
+  'use strict';
+
+  /* ── State ── */
+  const VARIANTS = ['vojtechov', 'vojtechov_pokrikov'];
+  const VARIANT_LABELS = {
+    vojtechov: 'Vojtěchov',
+    vojtechov_pokrikov: 'Vojtěchov + Pokřikov'
+  };
+  let currentVariant = 0;   // index into VARIANTS
+  let animatedMode = false;
+  let panelHidden = false;
+  let transitioning = false;
+
+  /* ── DOM refs ── */
+  const landing   = document.getElementById('landing');
+  const loading   = document.getElementById('loading-overlay');
+  const scene     = document.querySelector('a-scene');
+  const sky       = document.getElementById('sky');
+  const panel     = document.getElementById('vr-panel');
+  const btnVar    = document.getElementById('btn-variant');
+  const btnAnim   = document.getElementById('btn-animate');
+  const btnHide   = document.getElementById('btn-hide');
+  const gazeTrig  = document.getElementById('gaze-trigger');
+  const varText   = document.getElementById('btn-variant-text');
+  const animText  = document.getElementById('btn-animate-text');
+  const video     = document.getElementById('vid-vojtechov');
+
+  /* ── Helpers ── */
+  function showLoading()  { loading.classList.add('visible'); }
+  function hideLoading()  { loading.classList.remove('visible'); }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function setSky() {
+    if (transitioning) return;
+    transitioning = true;
+
+    // 1. Hide sky (fade to black)
+    sky.setAttribute('visible', false);
+    await sleep(150);
+
+    // 2. Pause video if it was playing
+    try { video.pause(); } catch (_) {}
+
+    // 3. Set new source
+    const v = VARIANTS[currentVariant];
+    if (animatedMode && v === 'vojtechov') {
+      sky.removeAttribute('src');
+      sky.setAttribute('material', 'src', '#vid-vojtechov');
+      sky.setAttribute('material', 'shader', 'flat');
+      try {
+        video.currentTime = 0;
+        await video.play();
+      } catch (_) {}
+    } else {
+      // Static image
+      sky.removeAttribute('material');
+      if (v === 'vojtechov') {
+        sky.setAttribute('src', '#sky-vojtechov');
+      } else {
+        sky.setAttribute('src', '#sky-vojtechov-pokrikov');
+      }
+    }
+
+    // 4. Short delay to let texture upload
+    await sleep(200);
+
+    // 5. Show sky
+    sky.setAttribute('visible', true);
+    transitioning = false;
+  }
+
+  function updateLabels() {
+    const label = VARIANT_LABELS[VARIANTS[currentVariant]];
+    varText.setAttribute('value', '▸ ' + label);
+
+    if (animatedMode && VARIANTS[currentVariant] === 'vojtechov') {
+      animText.setAttribute('value', 'Animace: Zapnuto');
+    } else if (animatedMode && VARIANTS[currentVariant] !== 'vojtechov') {
+      animText.setAttribute('value', 'Animace: Nedostupná');
+    } else {
+      animText.setAttribute('value', 'Animace: Vypnuto');
+    }
+  }
+
+  /* ── Button handlers ── */
+  btnVar.addEventListener('click', async function () {
+    currentVariant = (currentVariant + 1) % VARIANTS.length;
+    updateLabels();
+    await setSky();
+  });
+
+  btnAnim.addEventListener('click', async function () {
+    animatedMode = !animatedMode;
+    updateLabels();
+    await setSky();
+  });
+
+  btnHide.addEventListener('click', function () {
+    panelHidden = true;
+    panel.setAttribute('visible', false);
+  });
+
+  gazeTrig.addEventListener('click', function () {
+    if (panelHidden) {
+      panelHidden = false;
+      panel.setAttribute('visible', true);
+    }
+  });
+
+  /* ── Enter VR ── */
+  document.getElementById('enter-vr-btn').addEventListener('click', async function () {
+    showLoading();
+
+    // Wait for scene to be ready
+    if (!scene.hasLoaded) {
+      await new Promise(r => scene.addEventListener('loaded', r, { once: true }));
+    }
+
+    // Enter VR
+    try {
+      await scene.enterVR();
+    } catch (e) {
+      console.warn('Could not enter immersive VR, continuing in 360° mode:', e);
+    }
+
+    // Show content
+    sky.setAttribute('visible', true);
+    panel.setAttribute('visible', true);
+    updateLabels();
+    landing.classList.add('hidden');
+    hideLoading();
+  });
+
+  /* ── Exit VR → show landing again ── */
+  scene.addEventListener('exit-vr', function () {
+    sky.setAttribute('visible', false);
+    panel.setAttribute('visible', false);
+    try { video.pause(); } catch (_) {}
+    landing.classList.remove('hidden');
+  });
+
+})();
+</script>
+
+</body>
+</html>
